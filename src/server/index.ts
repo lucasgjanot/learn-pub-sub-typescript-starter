@@ -1,7 +1,8 @@
 import amqp from "amqplib"
 import { publishJSON } from "../internal/pubsub/publish.js";
-import { ExchangePerilDirect, PauseKey } from "../internal/routing/routing.js";
+import { ExchangePerilDirect, ExchangePerilTopic, GameLogSlug, PauseKey } from "../internal/routing/routing.js";
 import { getInput, printServerHelp } from "../internal/gamelogic/gamelogic.js";
+import { declareAndBind, SimpleQueueType } from "../internal/pubsub/consume.js";
 
 async function main() {
   console.log("Starting Peril server...");
@@ -10,6 +11,7 @@ async function main() {
   console.log("Peril game server connected to RabbitMQ!");
 
   const ch = await conn.createConfirmChannel();
+  
 
   ["SIGINT", "SIGTERM"].forEach((signal) =>
     process.on(signal, async () => {
@@ -24,6 +26,8 @@ async function main() {
     }),
   );
 
+  const [channel, queue] = await declareAndBind(conn,ExchangePerilTopic, 'game_logs', `${GameLogSlug}.*`, SimpleQueueType.Durable)
+
   printServerHelp();
   while (true) {
     const input = await getInput();
@@ -32,12 +36,12 @@ async function main() {
     }
     if (input[0] === "pause") {
       console.log("Sending pause message")
-      publishJSON(ch, ExchangePerilDirect, PauseKey, {IsPaused: true});
+      await publishJSON(ch, ExchangePerilDirect, PauseKey, {isPaused: true});
       continue;
     }
     if (input[0] === "resume") {
       console.log("Sending resume message");
-      publishJSON(ch, ExchangePerilDirect, PauseKey, {IsPaused: false});
+      await publishJSON(ch, ExchangePerilDirect, PauseKey, {isPaused: false});
       continue;
     }
     if (input[0] === "quit") {
