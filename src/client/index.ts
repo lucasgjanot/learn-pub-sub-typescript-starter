@@ -1,27 +1,28 @@
-import amqp from "amqplib";
+import amqp, { type ConfirmChannel } from "amqplib";
 import {
   clientWelcome,
   commandStatus,
   getInput,
+  getMaliciousLog,
   printClientHelp,
   printQuit,
 } from "../internal/gamelogic/gamelogic.js";
-import {
-  declareAndBind,
-  SimpleQueueType,
-  subscribeJSON,
-} from "../internal/pubsub/consume.js";
+import { SimpleQueueType, subscribeJSON } from "../internal/pubsub/consume.js";
 import {
   ArmyMovesPrefix,
   ExchangePerilDirect,
   ExchangePerilTopic,
+  GameLogSlug,
   PauseKey,
+  WarRecognitionsPrefix,
 } from "../internal/routing/routing.js";
 import { GameState } from "../internal/gamelogic/gamestate.js";
 import { commandSpawn } from "../internal/gamelogic/spawn.js";
 import { commandMove } from "../internal/gamelogic/move.js";
-import { handlerMove, handlerPause } from "./handlers.js";
-import { publishJSON } from "../internal/pubsub/publish.js";
+import { handlerMove, handlerPause, handlerWar, publishGameLog } from "./handlers.js";
+import { publishJSON, publishMsgPack } from "../internal/pubsub/publish.js";
+import type { GameLog } from "../internal/gamelogic/logs.js";
+import { channel } from "diagnostics_channel";
 
 async function main() {
   const rabbitConnString = "amqp://guest:guest@localhost:5672/";
@@ -43,7 +44,7 @@ async function main() {
 
   const username = await clientWelcome();
   const gs = new GameState(username);
-  const publishCh = await conn.createConfirmChannel()
+  const publishCh = await conn.createConfirmChannel();
 
   await subscribeJSON(
     conn,
@@ -51,7 +52,7 @@ async function main() {
     `${ArmyMovesPrefix}.${username}`,
     `${ArmyMovesPrefix}.*`,
     SimpleQueueType.Transient,
-    handlerMove(gs),
+    handlerMove(gs, publishCh),
   );
 
   await subscribeJSON(
@@ -61,6 +62,15 @@ async function main() {
     PauseKey,
     SimpleQueueType.Transient,
     handlerPause(gs),
+  );
+
+  await subscribeJSON(
+    conn,
+    ExchangePerilTopic,
+    WarRecognitionsPrefix,
+    `${WarRecognitionsPrefix}.*`,
+    SimpleQueueType.Durable,
+    handlerWar(gs, publishCh),
   );
 
   while (true) {
@@ -95,13 +105,22 @@ async function main() {
       printQuit();
       process.exit(0);
     } else if (command === "spam") {
-      console.log("Spamming not allowed yet!");
+      if (words.length != 2) {
+        console.log("Usage: spam <number>");
+        continue;
+      }
+      const times = Number(words[1]);
+      for (let i=0; i<times; i++) {
+        const log = getMaliciousLog();
+        publishGameLog(publishCh, username, log);
+      }
     } else {
       console.log("Unknown command");
       continue;
     }
   }
 }
+
 
 main().catch((err) => {
   console.error("Fatal error:", err);

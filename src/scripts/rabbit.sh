@@ -5,10 +5,10 @@ start_or_run () {
 
     if [ $? -eq 0 ]; then
         echo "Starting Peril RabbitMQ container..."
-        docker start peril_rabbitmq
+        docker start peril_rabbitmq && echo "http://localhost:15672"
     else
         echo "Peril RabbitMQ container not found, creating a new one..."
-        docker run -d --name peril_rabbitmq -p 5672:5672 -p 15672:15672 -p 61613:61613 rabbitmq-stomp
+        docker run -d --name peril_rabbitmq -p 5672:5672 -p 15672:15672 -p 61613:61613 rabbitmq-stomp && echo "http://localhost:15672"
     fi
 }
 
